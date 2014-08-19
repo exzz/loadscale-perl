@@ -228,15 +228,19 @@ sub lb_control_handler {
     my $group_name = $heap->{lb}{group_name};
     my $group_type = $heap->{lb}{group_type};
 
-    foreach my $server ( @{ $lb->stats } ) {
-      if (  ( $server->{pxname} eq $group_name )
-        and ( $server->{type} eq $group_type ) )
-      {
-        $heap->{instances}{ $server->{svname} }{rate}   = $server->{rate};
-        $heap->{instances}{ $server->{svname} }{status} = $server->{status};
-        debug "Stats : $server->{svname} $server->{status} $server->{rate}";
+    eval {
+      foreach my $server ( @{ $lb->stats } ) {
+        if (  ( $server->{pxname} eq $group_name )
+          and ( $server->{type} eq $group_type ) )
+        {
+          $heap->{instances}{ $server->{svname} }{rate}   = $server->{rate};
+          $heap->{instances}{ $server->{svname} }{status} = $server->{status};
+          debug "Stats : $server->{svname} $server->{status} $server->{rate}";
+        }
       }
-    }
+    };
+    debug $@;
+    error "Cannot read haproxy stats" if $@;
   }
 }
 
@@ -311,7 +315,7 @@ sub scale_handler {
       $count++;
     }
   }
-  debug "Stats : $up_count over / $down_count below / $count total (threshold is $ratio)"; 
+  debug "Stats : $up_count over / $down_count below / $count total (threshold is $ratio)";
 
   # pending operation
   if ( $heap->{state} ) {
