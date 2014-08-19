@@ -1,0 +1,7 @@
+#!/usr/bin/env perl
+
+#
+# loadscale-perl
+#
+
+require LoadScale;

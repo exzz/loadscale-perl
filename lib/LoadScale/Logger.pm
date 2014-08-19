@@ -1,6 +1,35 @@
 # vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
+
 package LoadScale::Logger;
+
+=head1 NAME
+
+LoadScale::Logger - Logging Module
+
+=head1 DESCRIPTION
+
+=head1 SYNOPSIS
+
+ # init
+ LoadScale::Logger::init;
+
+ # usage
+ info("hi !");
+ error("oops");
+ debug("trace");
+
+ # close
+ LoadScale::Logger::close;
+
+=head1 VARIABLES
+
+ # enable debug
+ $LoadScale::Logger::debug = 1;
+
+=over 4
+
+=cut
 
 use Exporter;
 @ISA    = qw(Exporter);
@@ -37,7 +66,8 @@ sub log_msg {
   syslog( $type, $msg );
 
   # print message to console
-  my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) = localtime(time);
+  my ( $sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst ) =
+    localtime(time);
   $mon++;
   $year += 1900;
 

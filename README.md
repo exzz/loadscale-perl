@@ -21,14 +21,23 @@ A *SCALE_DELAY* seconds lock is enable after each scale operation (up or down). 
 
 Ubuntu :
 ```
-sudo aptitude install haproxy cpanminus build-essential libssl-dev
-sudo cpanm Net::OpenStack::Compute LWP::Protocol::https POE File::Pid \
-           Net::HAProxy Template Data::Section::Simple Sys::Syslog Config::Tiny
+aptitude install cpanminus build-essential libssl-dev
+cpanm Dist::Zilla
 ```
 
 Enable fancy colors :
 ```
-sudo cpanm Term::ANSIColor
+cpanm Term::ANSIColor
+```
+
+Dependencies :
+```
+dzil listdeps --missing | cpanm
+```
+
+Install :
+```
+dzil install
 ```
 
 ## Getting started
@@ -77,18 +86,26 @@ SCALE_DELAY         = 60
 ; time to wait between load balancer update and instance deletion
 ; should be enough to let clients end their connections
 DESTROY_DELAY       = 120
+
+; do not modify
+[LB]
+GROUP_NAME          = web-backend
+SOCKET              = /tmp/haproxy.sock
+GROUP_TYPE          = 2 ; BACKEND
+CONFIG_PATH         = /etc/haproxy/haproxy.cfg
+RELOAD_CMD          = /usr/sbin/service haproxy reload
 ```
 
 **Haproxy configuration file**
 
-Haproxy configuration file template is embeded into perl file. 
+Haproxy configuration file template is embeded into perl file.
 
 
 ## Usage
 
 Standard, log to current terminal and syslog :
 ```
-sudo perl loadscale.pl --config loadscale.ini 
+sudo perl loadscale.pl --config loadscale.ini
                        --verbose
 ```
 
@@ -98,5 +115,3 @@ sudo perl loadscale.pl --config /etc/loadscale/loadscale.ini \
                        --daemonize \
                        --pid /var/run/loadscale.pid
 ```
-
-

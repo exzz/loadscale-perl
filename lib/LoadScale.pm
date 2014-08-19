@@ -1,74 +1,64 @@
-#!/usr/bin/env perl
-
-#
-# loadscale-perl
-#
-# author: Nicolas Leclercq
-# email:   <nicolas.private@gmail.com>
+# vim: set ts=2 sw=2 tw=0:
+# vim: set expandtab:
 
 # vim: set ts=2 sw=2 tw=0:
 # vim: set expandtab:
 
+package LoadScale;
+
+=head1 NAME
+
+LoadScale - Scale with load
+
+=head1 DESCRIPTION
+
+=head1 SYNOPSIS
+
+ TODO
+
+=head1 VARIABLES
+
+ TODO
+
+=over 4
+
+=cut
+
 use strict;
 use warnings;
 
-use Getopt::Long;
-use Config::Tiny;
 use POE;
-use File::Pid;
-use POSIX qw(setsid);
 use Net::HAProxy;
 use Net::OpenStack::Compute;
+use LWP::Protocol::https;
 use Template;
 use Data::Section::Simple qw(get_data_section);
 
+use LoadScale::Args;
+use LoadScale::Config;
 use LoadScale::Logger;
+use LoadScale::Daemon;
 
 #
 # Parse command line arguments
 #
-my $OPTIONS = {};
-Getopt::Long::GetOptions(
-  "daemonize" => \$OPTIONS->{daemonize},
-  "verbose"   => \$OPTIONS->{verbose},
-  "config=s"  => \$OPTIONS->{config_file},
-  "pid=s"     => \$OPTIONS->{pid_file}
-);
-die "Usage: $0 [--daemonize --pid PATH] [--verbose] --config FILE\n" unless $OPTIONS->{config_file};
+my $OPTIONS = LoadScale::Args::get_args;
 
 # enable debug
 $LoadScale::Logger::debug = 1 if $OPTIONS->{verbose};
 
 # daemonize
-if ( $OPTIONS->{daemonize} and $OPTIONS->{pid_file} ) {
-  chdir '/';
-  umask 0;
-  open STDIN,  '/dev/null'   or die "Can't read /dev/null: $!";
-  open STDOUT, '>>/dev/null' or die "Can't write to /dev/null: $!";
-  open STDERR, '>>/dev/null' or die "Can't write to /dev/null: $!";
-
-  defined( my $pid = fork ) or die "Can't fork: $!";
-  exit if $pid;
-
-  POSIX::setsid() or die "Can't start a new session.";
-  my $pidfile = File::Pid->new( { file => $OPTIONS->{pid_file} } );
-  $pidfile->write or die "Can't write PID file: $!";
-}
+LoadScale::Daemon::detach( $OPTIONS->{pid_file} ) if $OPTIONS->{daemonize};
 
 #
 # Parse config file
 #
-my $CONFIG = Config::Tiny->new;
-$CONFIG = Config::Tiny->read( $OPTIONS->{config_file} );
+my $CONFIG = LoadScale::Config::get_config( $OPTIONS->{config_file} );
 
 #
-# Moar config
+# Init logger
 #
-$CONFIG->{LB}{GROUP_NAME}  = "web-backend";
-$CONFIG->{LB}{SOCKET}      = "/tmp/haproxy.sock";
-$CONFIG->{LB}{GROUP_TYPE}  = "2";                                  # BACKEND
-$CONFIG->{LB}{CONFIG_PATH} = "/etc/haproxy/haproxy.cfg";
-$CONFIG->{LB}{RELOAD_CMD}  = "/usr/sbin/service haproxy reload";
+LoadScale::Logger::init;
 
 #
 # Startup
@@ -81,20 +71,11 @@ sub start_handler {
   $kernel->sig( TERM => 'stop_handler' );
   $kernel->sig( QUIT => 'stop_handler' );
 
-  # init logger
-  LoadScale::Logger::init;
-
   info("Starting");
 
   # init internal vars
   $heap->{instances} = {};
   $heap->{state}     = undef;
-
-  # haproxy socket
-  $heap->{lb}{handler} = Net::HAProxy->new( socket => $CONFIG->{LB}{SOCKET} );
-
-  $heap->{lb}{group_name} = $CONFIG->{LB}{GROUP_NAME};
-  $heap->{lb}{group_type} = $CONFIG->{LB}{GROUP_TYPE};
 
   # openstack control
   $heap->{openstack}{connect} = {
@@ -104,12 +85,15 @@ sub start_handler {
     project_id => $CONFIG->{OPENSTACK}{PROJECT_ID}
   };
 
-  my $compute = Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
+  my $compute =
+    Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
 
   my $networks = [];
-  foreach my $network_name ( split( ',', $CONFIG->{OPENSTACK}{NETWORK_NAMES} ) ) {
+  foreach my $network_name ( split( ',', $CONFIG->{OPENSTACK}{NETWORK_NAMES} ) )
+  {
     my $network_id =
-      pop [ map { $_->{label} eq $network_name ? $_->{id} : () } @{ $compute->get_networks() } ];
+      pop [ map { $_->{label} eq $network_name ? $_->{id} : () }
+        @{ $compute->get_networks() } ];
     push $networks, { uuid => $network_id };
   }
   $heap->{openstack}{create} = {
@@ -121,9 +105,11 @@ sub start_handler {
       map { $_->{name} eq $CONFIG->{OPENSTACK}{IMAGE_NAME} ? $_->{id} : () }
         @{ $compute->get_images() }
     ],
-    networks => $networks,
-    security_groups =>
-      [ map { { name => $_ } } split( ',', $CONFIG->{OPENSTACK}{SECURITYGROUP_NAMES} ) ],
+    networks        => $networks,
+    security_groups => [
+      map { { name => $_ } }
+        split( ',', $CONFIG->{OPENSTACK}{SECURITYGROUP_NAMES} )
+    ],
     key_name => $CONFIG->{OPENSTACK}{KEY_NAME}
   };
 
@@ -142,6 +128,12 @@ sub start_handler {
     }
   }
 
+  # haproxy socket
+  $heap->{lb}{handler} = Net::HAProxy->new( socket => $CONFIG->{LB}{SOCKET} );
+
+  $heap->{lb}{group_name} = $CONFIG->{LB}{GROUP_NAME};
+  $heap->{lb}{group_type} = $CONFIG->{LB}{GROUP_TYPE};
+
   # start main loop
   $kernel->post( $session, "scale" );
 }
@@ -151,7 +143,6 @@ sub start_handler {
 #
 sub stop_handler {
   info("Exiting");
-  LoadScale::Logger::close;
 }
 
 #
@@ -164,14 +155,16 @@ sub stop_handler {
 # lb_read_stats : read current haproxy stats
 #
 sub lb_control_handler {
-  my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
+  my ( $kernel, $heap, $session, $state, $data ) =
+    @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
 
   #
   # add instance into backend list
   #
   if ( $state eq "lb_add" ) {
 
-    my $compute  = Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
+    my $compute =
+      Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
     my $instance = $compute->get_server( $data->{id} );
 
     # add instance to current configuration
@@ -196,7 +189,10 @@ sub lb_control_handler {
       info "Instance $data->{id} removed from haproxy backend";
 
       # schedule instance deletion
-      $kernel->alarm_add( instance_delete => time() + $CONFIG->{THRESHOLD}{DESTROY_DELAY}, $data );
+      $kernel->alarm_add(
+        instance_delete => time() + $CONFIG->{THRESHOLD}{DESTROY_DELAY},
+        $data
+      );
     }
   }
 
@@ -209,8 +205,11 @@ sub lb_control_handler {
     debug "Updating haproxy configuration";
     my $tt       = Template->new;
     my $template = get_data_section("haproxy");
-    $tt->process( \$template, { status => $heap->{instances} }, $CONFIG->{LB}{CONFIG_PATH} )
-      || error $tt->error;
+    $tt->process(
+      \$template,
+      { status => $heap->{instances} },
+      $CONFIG->{LB}{CONFIG_PATH}
+    ) || error $tt->error;
 
     # apply haproxy config
     debug "Reloading haproxy";
@@ -239,8 +238,10 @@ sub lb_control_handler {
         }
       }
     };
-    debug $@;
-    error "Cannot read haproxy stats" if $@;
+    if ($@) {
+      debug $@;
+      error "Cannot read haproxy stats";
+    }
   }
 }
 
@@ -251,16 +252,22 @@ sub lb_control_handler {
 # instance_destroy : delete instance
 #
 sub instance_control_handler {
-  my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
+  my ( $kernel, $heap, $session, $state, $data ) =
+    @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
 
-  my $compute = Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
+  my $compute =
+    Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
 
   # create new instance
   if ( $state eq 'instance_create' ) {
     my $instance;
     eval {
       $instance = $compute->create_server(
-        { %{ $heap->{openstack}{create} }, name => $heap->{lb}{group_name} . '-' . time() } );
+        {
+          %{ $heap->{openstack}{create} },
+          name => $heap->{lb}{group_name} . '-' . time()
+        }
+      );
     };
     if ($@) {
       debug $@;
@@ -278,7 +285,10 @@ sub instance_control_handler {
     if ($@) {
       debug $@;
       error "Cannot delete instance $data->{id}, scheduling retry";
-      $kernel->alarm_add( instance_delete => time() + $CONFIG->{THRESHOLD}{DESTROY_DELAY}, $data );
+      $kernel->alarm_add(
+        instance_delete => time() + $CONFIG->{THRESHOLD}{DESTROY_DELAY},
+        $data
+      );
     }
     else {
       info "Cloud instance $data->{id} destroyed";
@@ -290,7 +300,8 @@ sub instance_control_handler {
 # Scale handler
 # This is the main loop : from haproxy stats enable scale up or scale down
 sub scale_handler {
-  my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
+  my ( $kernel, $heap, $session, $state, $data ) =
+    @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
 
   # update instance stats
   $kernel->call( $session, "lb_read_stats" );
@@ -298,7 +309,8 @@ sub scale_handler {
   my $down_count = 0;
   my $up_count   = 0;
   my $count      = 0;
-  my $ratio      = $CONFIG->{THRESHOLD}{INSTANCE_RATIO} * scalar keys %{ $heap->{instances} };
+  my $ratio =
+    $CONFIG->{THRESHOLD}{INSTANCE_RATIO} * scalar keys %{ $heap->{instances} };
 
   foreach my $uuid ( keys %{ $heap->{instances} } ) {
     my $instance = $heap->{instances}{$uuid};
@@ -315,7 +327,8 @@ sub scale_handler {
       $count++;
     }
   }
-  debug "Stats : $up_count over / $down_count below / $count total (threshold is $ratio)";
+  debug
+"Stats : $up_count over / $down_count below / $count total (threshold is $ratio)";
 
   # pending operation
   if ( $heap->{state} ) {
@@ -334,7 +347,10 @@ sub scale_handler {
 
       # lock
       $heap->{state} = "scale_up";
-      $kernel->alarm( reset_state => time() + $CONFIG->{THRESHOLD}{SCALE_DELAY}, 0 );
+      $kernel->alarm(
+        reset_state => time() + $CONFIG->{THRESHOLD}{SCALE_DELAY},
+        0
+      );
 
       for ( 1 .. $CONFIG->{THRESHOLD}{INSTANCE_SPAWN} ) {
 
@@ -349,17 +365,22 @@ sub scale_handler {
     my $MIN_INSTANCE = $CONFIG->{THRESHOLD}{MIN_INSTANCE};
 
     if ( $count <= $MIN_INSTANCE ) {
-      error "Cannot scale down, min instance count reach ($count/$MIN_INSTANCE)";
+      error
+        "Cannot scale down, min instance count reach ($count/$MIN_INSTANCE)";
     }
     else {
       debug "Scaling down";
 
       # lock
       $heap->{state} = "scale_down";
-      $kernel->alarm( reset_state => time() + $CONFIG->{THRESHOLD}{SCALE_DELAY}, 0 );
+      $kernel->alarm(
+        reset_state => time() + $CONFIG->{THRESHOLD}{SCALE_DELAY},
+        0
+      );
 
       # update lb config, then destroy instance
-      $kernel->post( $session, "lb_remove", { id => ( keys %{ $heap->{instances} } )[0] } );
+      $kernel->post( $session, "lb_remove",
+        { id => ( keys %{ $heap->{instances} } )[0] } );
     }
   }
 
@@ -368,7 +389,8 @@ sub scale_handler {
 }
 
 sub reset_state_handler {
-  my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
+  my ( $kernel, $heap, $session, $state, $data ) =
+    @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
 
   $heap->{state} = undef;
 }
@@ -397,7 +419,12 @@ POE::Session->create(
 
 # release the Kraken
 POE::Kernel->run();
+
+LoadScale::Logger::close;
+
 exit;
+
+1;
 
 __DATA__
 
