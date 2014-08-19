@@ -6,23 +6,24 @@ With loadscale-perl you can manage your backend instance number from your haprox
 
 loadscale-perl is a daemon running side by side with haproxy process. It reads session numbers from haproxy stats socket and, following user defined thresholds, spawns or detroys new cloud instance to handle load.
 
-** Example **
-On boot, loadscale-perl will identify backend instance based on their running IMAGE_NAME, and update haproxy configuration.
+**Example**
 
-Scale up :
-If INSTANCE_RATIO * 100 instances have sessions rate above RATE_UP_LIMIT, this script will create INSTANCE_SPAWN new instance and update haproxy configuration to includes these new VM into backend.
+Boostrap : On boot, loadscale-perl will identify backend instance based on their running *IMAGE_NAME*, and update haproxy configuration.
 
-Scale down :
-If INSTANCE_RATIO * 100 instances have sessions rate below RATE_DOWN_LIMIT, this script will remove instance from haproxy configuration one by one and wait DESTROY_DELAY before destroying corresponding cloud instance. This delay gives time to clients to end their session. 
+Scale up : If *INSTANCE_RATIO* instances have sessions rate above *RATE_UP_LIMIT*, this script will create *INSTANCE_SPAWN* new instances and update haproxy configuration to includes these new VM into backend.
 
-A SCALE_DELAY seconds lock is enable after each scale operation (up or down). This interval should give enough time to complete instance boot (cloud creation, OS boot and load balanced application set up).
+Scale down : If *INSTANCE_RATIO* instances have sessions rate below *RATE_DOWN_LIMIT*, this script will remove instance from haproxy configuration one by one and wait *DESTROY_DELAY* before destroying corresponding cloud instance. This delay gives time to clients to end their session.
+
+
+A *SCALE_DELAY* seconds lock is enable after each scale operation (up or down). This interval should give enough time to complete instance boot (cloud creation, OS boot and load balanced application set up).
 
 ## Installation
 
 Ubuntu :
 ```
 sudo aptitude install haproxy cpanminus build-essential libssl-dev
-sudo cpanm Net::OpenStack::Compute LWP::Protocol::https POE File::Pid Net::HAProxy Template Data::Section::Simple Sys::Syslog Config::Tiny
+sudo cpanm Net::OpenStack::Compute LWP::Protocol::https POE File::Pid \
+           Net::HAProxy Template Data::Section::Simple Sys::Syslog Config::Tiny
 ```
 
 Enable fancy colors :
@@ -31,6 +32,8 @@ sudo cpanm Term::ANSIColor
 ```
 
 ## Getting started
+
+**Configuration file**
 
 loadscale-perl read configuration from a INI configuration file :
 
@@ -76,6 +79,8 @@ SCALE_DELAY         = 60
 DESTROY_DELAY       = 120
 ```
 
+**Haproxy configuration file**
+
 Haproxy configuration file template is embeded into perl file. 
 
 
@@ -83,12 +88,15 @@ Haproxy configuration file template is embeded into perl file.
 
 Standard, log to current terminal and syslog :
 ```
-sudo perl loadscale.pl --config loadscale.ini --verbose
+sudo perl loadscale.pl --config loadscale.ini 
+                       --verbose
 ```
 
 Daemonize, log to syslog :
 ```
-sudo perl loadscale.pl --config /etc/loadscale/loadscale.ini --daemonize --pid /var/run/loadscale.pid
+sudo perl loadscale.pl --config /etc/loadscale/loadscale.ini \
+                       --daemonize \
+                       --pid /var/run/loadscale.pid
 ```
 
 
