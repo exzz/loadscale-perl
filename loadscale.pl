@@ -165,7 +165,6 @@ sub stop_handler {
 #
 sub lb_control_handler {
   my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
-  debug "---- event : $state";
 
   #
   # add instance into backend list
@@ -249,7 +248,6 @@ sub lb_control_handler {
 #
 sub instance_control_handler {
   my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
-  debug "---- event : $state";
 
   my $compute = Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
 
@@ -289,7 +287,6 @@ sub instance_control_handler {
 # This is the main loop : from haproxy stats enable scale up or scale down
 sub scale_handler {
   my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
-  debug "---- event : $state";
 
   # update instance stats
   $kernel->call( $session, "lb_read_stats" );
@@ -368,7 +365,6 @@ sub scale_handler {
 
 sub reset_state_handler {
   my ( $kernel, $heap, $session, $state, $data ) = @_[ KERNEL, HEAP, SESSION, STATE, ARG0 ];
-  debug "---- event : $state";
 
   $heap->{state} = undef;
 }
