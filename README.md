@@ -17,6 +17,8 @@ Scale down : If *INSTANCE_RATIO* instances have sessions rate below *RATE_DOWN_L
 
 A *SCALE_DELAY* seconds lock is enable after each scale operation (up or down). This interval should give enough time to complete instance boot (cloud creation, OS boot and load balanced application set up).
 
+In case of *RATE_SAMPLES* is greater than 1, average over all samples is used instead of instant rate values.
+
 ## Installation
 
 Ubuntu :
@@ -71,6 +73,9 @@ MAIN_LOOP           = 20
 MIN_INSTANCE        = 2
 ; maximum instances into backend
 MAX_INSTANCE        = 30
+
+; number of rate samples to compute average from
+RATE_SAMPLES        = 6
 
 ; rate value threshold to schedule scale up process
 RATE_UP_LIMIT       = 20

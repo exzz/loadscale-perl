@@ -33,6 +33,8 @@ use Net::OpenStack::Compute;
 use LWP::Protocol::https;
 use Template;
 use Data::Section::Simple qw(get_data_section);
+use List::Util qw(sum);
+use Data::Dumper;
 
 use LoadScale::Args;
 use LoadScale::Config;
@@ -77,7 +79,7 @@ sub start_handler {
   $heap->{instances} = {};
   $heap->{state}     = undef;
 
-  # openstack control
+  # openstack connect template
   $heap->{openstack}{connect} = {
     auth_url   => $CONFIG->{OPENSTACK}{AUTH_URL},
     user       => $CONFIG->{OPENSTACK}{USER},
@@ -88,6 +90,8 @@ sub start_handler {
   my $compute =
     Net::OpenStack::Compute->new( %{ $heap->{openstack}{connect} } );
 
+  # openstack new instance template
+  # get openstack object id from names
   my $networks = [];
   foreach my $network_name ( split( ',', $CONFIG->{OPENSTACK}{NETWORK_NAMES} ) )
   {
@@ -232,9 +236,23 @@ sub lb_control_handler {
         if (  ( $server->{pxname} eq $group_name )
           and ( $server->{type} eq $group_type ) )
         {
-          $heap->{instances}{ $server->{svname} }{rate}   = $server->{rate};
-          $heap->{instances}{ $server->{svname} }{status} = $server->{status};
-          debug "Stats : $server->{svname} $server->{status} $server->{rate}";
+          my $backend = $heap->{instances}{ $server->{svname} };
+
+          # stack rate values to compute average
+          $backend->{rate} = [] unless defined $backend->{rate};
+          push $backend->{rate}, $server->{rate};
+          shift $backend->{rate}
+            if scalar @{ $backend->{rate} } >
+            $CONFIG->{THRESHOLD}{RATE_SAMPLES};
+
+          $backend->{rate_avg} =
+            sum( @{ $backend->{rate} } ) / scalar @{ $backend->{rate} };
+
+          # keep backend status
+          $backend->{status} = $server->{status};
+          debug
+            "$server->{svname} status:$server->{status} rate:$server->{rate} avg:"
+            . sprintf( "%.1f", $backend->{rate_avg} );
         }
       }
     };
@@ -317,10 +335,10 @@ sub scale_handler {
 
     if ( $instance->{status} eq 'UP' ) {
 
-      if ( $instance->{rate} > $CONFIG->{THRESHOLD}{RATE_UP_LIMIT} ) {
+      if ( $instance->{rate_avg} > $CONFIG->{THRESHOLD}{RATE_UP_LIMIT} ) {
         $up_count++;
       }
-      elsif ( $instance->{rate} < $CONFIG->{THRESHOLD}{RATE_DOWN_LIMIT} ) {
+      elsif ( $instance->{rate_avg} < $CONFIG->{THRESHOLD}{RATE_DOWN_LIMIT} ) {
         $down_count++;
       }
 
@@ -328,7 +346,7 @@ sub scale_handler {
     }
   }
   debug
-"Stats : $up_count over / $down_count below / $count total (threshold is $ratio)";
+    "over:$up_count below:$down_count below total:$count total (threshold:$ratio)";
 
   # pending operation
   if ( $heap->{state} ) {
@@ -365,8 +383,7 @@ sub scale_handler {
     my $MIN_INSTANCE = $CONFIG->{THRESHOLD}{MIN_INSTANCE};
 
     if ( $count <= $MIN_INSTANCE ) {
-      error
-        "Cannot scale down, min instance count reach ($count/$MIN_INSTANCE)";
+      debug "Cannot scale down, min instance count reach";
     }
     else {
       debug "Scaling down";
