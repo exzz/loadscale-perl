@@ -44,6 +44,8 @@ sub detach {
   exit if $pid;
 
   POSIX::setsid() or die "Can't start a new session.";
+  
+  unlink($pid_file) if -e $pid_file;
   my $pidfile = File::Pid->new( { file => $pid_file } );
   $pidfile->write or die "Can't write PID file: $!";
 }
