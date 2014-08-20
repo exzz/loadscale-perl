@@ -31,7 +31,14 @@ use warnings;
 use Getopt::Long;
 
 sub usage {
-  die "Usage: $0 [--daemonize --pid PATH] [--verbose] --config PATH\n";
+  print "LoadScale-perl - Scale your load\n";
+  print " --help\t\tDisplay this message and exit\n";
+  print " --config\tSet configuration file path\n";
+  print " --daemonize\tFork to background, require --pid option\n";
+  print " --pid\t\tSet PID file path\n";
+  print " --verbose\tEnable debug messages\n";
+
+  exit 1;
 }
 
 sub get_args {
